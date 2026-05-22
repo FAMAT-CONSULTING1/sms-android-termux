@@ -37,58 +37,52 @@ class SMSGatewayService:
             logger.error(f"Excepción durante login: {e}")
             raise
 
-    async def fetch_pending_sms(self) -> list:
-        """Obtiene la lista de SMS pendientes del backend"""
+    async def fetch_pending_messages(self, path: str) -> list:
+        """Obtiene la lista de mensajes pendientes del backend para un path específico"""
         if not self._access_token:
             await self.login()
             
-        pending_url = f"{settings.backend_url}{settings.pending_sms_path}"
+        pending_url = f"{settings.backend_url}{path}"
         headers = {"Authorization": f"Bearer {self._access_token}"}
         
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(pending_url, headers=headers, timeout=10.0)
                 if response.status_code == 200:
-                    return response.json()  # Asumimos que devuelve una lista
+                    return response.json()
                 elif response.status_code == 401:
-                    # Token expirado, intentar login de nuevo
                     await self.login()
                     headers = {"Authorization": f"Bearer {self._access_token}"}
                     response = await client.get(pending_url, headers=headers, timeout=10.0)
                     return response.json()
                 else:
-                    logger.error(f"Error al obtener SMS pendientes: {response.status_code}")
+                    logger.error(f"Error al obtener mensajes pendientes de {path}: {response.status_code}")
                     return []
         except Exception as e:
-            logger.error(f"Excepción al obtener SMS pendientes: {e}")
+            logger.error(f"Excepción al obtener mensajes de {path}: {e}")
             return []
 
     async def sync_with_backend(self) -> Dict[str, Any]:
         """Sincroniza con el backend: descarga y envía mensajes pendientes"""
         logger.info("Iniciando sincronización con el backend...")
-        pending_messages = await self.fetch_pending_sms()
         
-        if not pending_messages:
+        pending_sms = await self.fetch_pending_messages(settings.pending_sms_path)
+        pending_whatsapp = await self.fetch_pending_messages(settings.pending_whatsapp_path)
+
+        def extract_items(data):
+            if isinstance(data, dict):
+                return data.get("items", [])
+            elif isinstance(data, list):
+                return data
+            return []
+
+        messages_list = []
+        messages_list.extend(extract_items(pending_sms))
+        messages_list.extend(extract_items(pending_whatsapp))
+        
+        if not messages_list:
             logger.info("No hay mensajes pendientes.")
             return {"status": "success", "processed": 0, "results": []}
-
-        if isinstance(pending_messages, str):
-            # A veces el backend devuelve strings si no hay nada o hay error
-            logger.info(f"Respuesta del backend: {pending_messages}")
-            return {"status": "success", "processed": 0, "results": [], "message": pending_messages}
-
-        # Determinar la lista de mensajes a procesar
-        messages_list = []
-        if isinstance(pending_messages, dict):
-            # Si es un diccionario, buscamos los mensajes en la clave 'items'
-            messages_list = pending_messages.get("items", [])
-            logger.info(f"El backend devolvió un diccionario. Extrayendo {len(messages_list)} mensajes de 'items'.")
-        elif isinstance(pending_messages, list):
-            messages_list = pending_messages
-            logger.info(f"El backend devolvió una lista directa de {len(messages_list)} mensajes.")
-        else:
-            logger.warning(f"Formato de respuesta inesperado: {type(pending_messages)}")
-            return {"status": "error", "detail": f"Unexpected response type: {type(pending_messages)}"}
 
         results = []
         for i, msg_data in enumerate(messages_list):
@@ -158,7 +152,7 @@ class SMSGatewayService:
 
             # 2. Enviar actualización al backend usando PATCH
             delivery_job_id = data.get("delivery_job_id")
-            await self._send_callback(delivery_job_id, "sent", "DELIVERED")
+            await self._send_callback(delivery_job_id, "sent", "DELIVERED", channel=channel)
             
             return response_data
 
@@ -166,7 +160,7 @@ class SMSGatewayService:
             error_msg = str(e)
             # Enviar actualización de fallo
             delivery_job_id = data.get("delivery_job_id")
-            await self._send_callback(delivery_job_id, "failed", "DISPATCH_ERROR", error_message=error_msg)
+            await self._send_callback(delivery_job_id, "failed", "DISPATCH_ERROR", error_message=error_msg, channel=channel)
             
             return {
                 "detail": "Error al enviar SMS",
@@ -176,13 +170,14 @@ class SMSGatewayService:
                 "message_id": message_id
             }
 
-    async def _send_callback(self, delivery_job_id: Optional[int], status: str, reason_code: str, error_message: Optional[str] = None):
+    async def _send_callback(self, delivery_job_id: Optional[int], status: str, reason_code: str, error_message: Optional[str] = None, channel: str = "sms"):
         """Actualiza el estado del mensaje en el backend usando PATCH"""
         if not delivery_job_id:
             logger.debug("No delivery_job_id available for callback.")
             return
 
-        callback_url = f"{settings.backend_url}/calendario/delivery-jobs/sms-pendientes/{delivery_job_id}/estado"
+        base_path = settings.pending_whatsapp_path if channel == "whatsapp" else settings.pending_sms_path
+        callback_url = f"{settings.backend_url}{base_path}/{delivery_job_id}/estado"
         
         payload = {
             "estado": status,

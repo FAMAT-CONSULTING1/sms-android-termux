@@ -72,7 +72,7 @@ class MessageService:
         """
         # Mudslide usually expects numbers without the '+' prefix
         clean_number = number.replace("+", "").strip()
-        command = ["mudslide", "send", clean_number, message]
+        command = ["npx", "mudslide", "send", clean_number, message]
 
         try:
             import asyncio

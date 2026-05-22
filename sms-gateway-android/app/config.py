@@ -8,6 +8,7 @@ class AppSettings(pydantic.BaseSettings):
     admin_email: str = "bensamuel114@gmail.com"
     admin_password: str = "admin12345"
     pending_sms_path: str = "/calendario/delivery-jobs/sms-pendientes"
+    pending_whatsapp_path: str = "/calendario/delivery-jobs/whatsapp-pendientes"
 
     class Config:  # type: ignore[misc]
         env_file = ".env"
