@@ -64,29 +64,31 @@ class MessageService:
             )
 
     async def send_whatsapp(self, number: str, message: str) -> None:
-        """Send a WhatsApp message using mudslide.
+        """Send a WhatsApp message using termux-open-url.
 
         Args:
             number (str): The phone number to send the message to.
             message (str): The message to be sent.
         """
-        # Mudslide usually expects numbers without the '+' prefix
+        import urllib.parse
+        import asyncio
+        
         clean_number = number.replace("+", "").strip()
-        command = ["npx", "mudslide", "send", clean_number, message]
+        encoded_message = urllib.parse.quote(message)
+        url = f"https://wa.me/{clean_number}?text={encoded_message}"
+        command = ["termux-open-url", url]
 
         try:
-            import asyncio
             loop = asyncio.get_running_loop()
             proc = await loop.run_in_executor(
                 None, lambda: subprocess.run(command, capture_output=True)
             )
             if proc.returncode != 0:
                 error_detail = proc.stderr.decode()
-                logger.error(f"Mudslide error: {error_detail}")
                 raise RuntimeError(f"WhatsApp send failed: {error_detail}")
         except FileNotFoundError:
             raise starlite.HTTPException(
-                status_code=500, detail="Mudslide CLI is not installed"
+                status_code=500, detail="termux-open-url is not available"
             )
         except Exception as e:
             raise starlite.HTTPException(
