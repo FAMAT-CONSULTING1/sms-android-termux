@@ -18,7 +18,7 @@ class SMSGatewayService:
         self._access_token: Optional[str] = None
 
     async def login(self) -> str:
-        login_url = f"{settings.backend_url}/auth/jwt/login"
+        login_url = f"{settings.backend_url}/auth/jwt/login-2fa"
         data = {"username": settings.admin_email, "password": settings.admin_password}
 
         async with httpx.AsyncClient() as client:
